@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { getTransactionsByPeriod } from '../api.js'
 import { categoryOptions, formatCurrency } from '../data.jsx'
 
 const toDateKey = date => {
@@ -38,10 +39,36 @@ const getMonths = rangeStart => {
   return Array.from({ length: 24 }, (_, index) => new Date(firstMonth.getFullYear(), firstMonth.getMonth() + index, 1))
 }
 
-const AnalysisPage = ({ expenses, onLogout, onOpenExpenses }) => {
+const AnalysisPage = ({ expenses, token, onLogout, onOpenExpenses, onUnauthorized }) => {
   const [range, setRange] = useState(() => getInitialRange(expenses))
+  const [periodExpenses, setPeriodExpenses] = useState([])
+  const [periodLoading, setPeriodLoading] = useState(true)
+  const [periodError, setPeriodError] = useState('')
+  const [periodRefresh, setPeriodRefresh] = useState(0)
   const calendarRef = useRef(null)
   const months = useMemo(() => getMonths(range.start), [range.start])
+
+  useEffect(() => {
+    if (!range.start || !range.end) return undefined
+
+    let active = true
+    getTransactionsByPeriod(token, range.start, range.end)
+      .then(transactions => {
+        if (active) setPeriodExpenses(transactions)
+      })
+      .catch(error => {
+        if (!active) return
+        setPeriodError(error.message || 'Не удалось загрузить расходы за период')
+        if (error.status === 401) onUnauthorized()
+      })
+      .finally(() => {
+        if (active) setPeriodLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [range.start, range.end, token, onUnauthorized, periodRefresh])
 
   useEffect(() => {
     const startMonth = range.start.slice(0, 7)
@@ -56,25 +83,36 @@ const AnalysisPage = ({ expenses, onLogout, onOpenExpenses }) => {
 
   const totals = useMemo(() => {
     const totalsByCategory = new Map(categoryOptions.map(({ label }) => [label, 0]))
-    expenses.forEach(expense => {
-      if (expense.date >= range.start && expense.date <= range.end) {
-        totalsByCategory.set(expense.category, (totalsByCategory.get(expense.category) ?? 0) + Number(expense.amount))
-      }
+    periodExpenses.forEach(expense => {
+      totalsByCategory.set(expense.category, (totalsByCategory.get(expense.category) ?? 0) + Number(expense.amount))
     })
     return categoryOptions.map(({ label }) => ({ category: label, amount: totalsByCategory.get(label) ?? 0 }))
-  }, [expenses, range])
+  }, [periodExpenses])
 
   const total = totals.reduce((sum, item) => sum + item.amount, 0)
   const maxAmount = Math.max(...totals.map(item => item.amount), 1)
 
   const handleDateSelect = date => {
+    setPeriodExpenses([])
     if (!range.start || range.end) {
+      setPeriodLoading(false)
+      setPeriodError('')
       setRange({ start: date, end: '' })
     } else if (date < range.start) {
+      setPeriodLoading(true)
+      setPeriodError('')
       setRange({ start: date, end: range.start })
     } else {
+      setPeriodLoading(true)
+      setPeriodError('')
       setRange({ start: range.start, end: date })
     }
+  }
+
+  const retryPeriod = () => {
+    setPeriodLoading(true)
+    setPeriodError('')
+    setPeriodRefresh(current => current + 1)
   }
 
   return (
@@ -153,9 +191,15 @@ const AnalysisPage = ({ expenses, onLogout, onOpenExpenses }) => {
 
           <section className="analysis-card" aria-label="Расходы по категориям">
             <div className="analysis-summary">
-              <strong>{formatCurrency(total)}</strong>
+              <strong>{periodLoading ? 'Загружаем…' : formatCurrency(total)}</strong>
               <span>{formatLongDate(range.start)} — {formatLongDate(range.end || range.start)}</span>
             </div>
+            {periodError && (
+              <div className="period-error" role="alert">
+                <p className="form-error">{periodError}</p>
+                <button type="button" className="retry-button" onClick={retryPeriod}>Повторить</button>
+              </div>
+            )}
             <div className="chart" role="img" aria-label={`Расходы по категориям за выбранный период: ${formatCurrency(total)}`}>
               {totals.map((item, index) => (
                 <div className="chart-column" key={item.category}>

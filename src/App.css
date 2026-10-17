@@ -43,6 +43,10 @@
   color: #7334ea;
 }
 
+.nav-link:disabled {
+  cursor: wait;
+}
+
 .nav-link.active::after {
   content: '';
   position: absolute;
@@ -142,6 +146,21 @@
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.primary-button:disabled,
+.delete-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.retry-button {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #7334ea;
+  color: #ffffff;
+  font-size: 13px;
 }
 
 .form-error {

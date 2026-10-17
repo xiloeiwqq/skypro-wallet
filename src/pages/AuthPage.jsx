@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const AuthPage = ({ onSwitchToRegister, onSubmit, errorMessage }) => {
+const AuthPage = ({ onSwitchToRegister, onSubmit, errorMessage, loading }) => {
   const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
 
@@ -48,15 +48,15 @@ const AuthPage = ({ onSwitchToRegister, onSubmit, errorMessage }) => {
 
             {errorMessage && <p className="form-error">{errorMessage}</p>}
 
-            <button type="submit" className="primary-button">
-              Войти
+            <button type="submit" className="primary-button" disabled={loading}>
+              {loading ? 'Входим…' : 'Войти'}
             </button>
           </form>
 
           <p className="register-note">
             Нужно зарегистрироваться?
             <br />
-            <button type="button" className="text-link" onClick={onSwitchToRegister}>
+            <button type="button" className="text-link" onClick={onSwitchToRegister} disabled={loading}>
               Регистрируйтесь здесь
             </button>
           </p>

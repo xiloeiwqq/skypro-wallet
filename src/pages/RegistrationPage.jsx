@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-const RegistrationPage = ({ onSwitchToLogin, onSubmit, errorMessage }) => {
+const RegistrationPage = ({ onSwitchToLogin, onSubmit, errorMessage, loading }) => {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -51,7 +51,7 @@ const RegistrationPage = ({ onSwitchToLogin, onSubmit, errorMessage }) => {
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={3}
                 value={password}
                 onChange={event => setPassword(event.target.value)}
                 placeholder="Пароль"
@@ -62,15 +62,15 @@ const RegistrationPage = ({ onSwitchToLogin, onSubmit, errorMessage }) => {
 
             {errorMessage && <p className="form-error">{errorMessage}</p>}
 
-            <button type="submit" className="primary-button">
-              Зарегистрироваться
+            <button type="submit" className="primary-button" disabled={loading}>
+              {loading ? 'Регистрируем…' : 'Зарегистрироваться'}
             </button>
           </form>
 
           <p className="register-note">
             Уже есть аккаунт?
             <br />
-            <button type="button" className="text-link" onClick={onSwitchToLogin}>
+            <button type="button" className="text-link" onClick={onSwitchToLogin} disabled={loading}>
               Войдите здесь
             </button>
           </p>

@@ -1,152 +1,227 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import { ApiError, createTransaction, deleteTransaction, getTransactions, login, register } from './api.js'
 import AuthPage from './pages/AuthPage'
 import RegistrationPage from './pages/RegistrationPage'
 import ExpensesPage from './pages/ExpensesPage'
 import AnalysisPage from './pages/AnalysisPage'
-import { sampleExpenses } from './data.jsx'
+import { categoryByLabel } from './data.jsx'
 
-const STORAGE_KEY = 'skypro-wallet-user'
-const SESSION_KEY = 'skypro-wallet-session'
-const getExpensesKey = user => `skypro-wallet-expenses-${user.login}`
+const USER_KEY = 'skypro-wallet-user'
 
-const getInitialExpenses = user => {
-  if (!user) return []
+const getSavedUser = () => {
   try {
-    const saved = localStorage.getItem(getExpensesKey(user))
-    if (saved !== null) {
-      const parsed = JSON.parse(saved)
-      if (!Array.isArray(parsed)) throw new Error('Saved expenses must be an array')
-      return parsed
+    const user = JSON.parse(localStorage.getItem(USER_KEY) || 'null')
+    if (!user?.token) {
+      if (user) localStorage.removeItem(USER_KEY)
+      return null
     }
+
+    if (Object.hasOwn(user, 'password')) {
+      const safeUser = { ...user }
+      delete safeUser.password
+      localStorage.setItem(USER_KEY, JSON.stringify(safeUser))
+      return safeUser
+    }
+    return user
   } catch (error) {
-    console.error('Unable to read saved expenses', error)
+    console.error('Unable to read saved user', error)
+    return null
   }
-
-  return user.login === 'admin' ? sampleExpenses : []
-}
-
-const DEMO_USER = {
-  name: 'Admin',
-  login: 'admin',
-  email: 'admin@skypro.ru',
-  password: 'admin',
 }
 
 function App() {
-  const [user, setUser] = useState(() => {
-    try {
-      if (localStorage.getItem(SESSION_KEY) !== 'active') return null
-      return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? null
-    } catch {
-      return null
-    }
-  })
-  const [view, setView] = useState(() => {
-    try {
-      return localStorage.getItem(SESSION_KEY) === 'active' ? 'expenses' : 'login'
-    } catch {
-      return 'login'
-    }
-  })
+  const [user, setUser] = useState(getSavedUser)
+  const [view, setView] = useState(() => (getSavedUser() ? 'expenses' : 'login'))
   const [authError, setAuthError] = useState('')
-  const [expenses, setExpenses] = useState(() => getInitialExpenses(user))
+  const [authLoading, setAuthLoading] = useState(false)
+  const [expenses, setExpenses] = useState([])
+  const [expensesLoading, setExpensesLoading] = useState(Boolean(user))
+  const [expensesError, setExpensesError] = useState('')
+  const [mutationLoading, setMutationLoading] = useState(false)
 
-  const handleExpensesChange = nextExpenses => {
-    setExpenses(nextExpenses)
-    if (!user) return false
+  const saveUser = authenticatedUser => {
     try {
-      localStorage.setItem(getExpensesKey(user), JSON.stringify(nextExpenses))
-      return true
+      localStorage.setItem(USER_KEY, JSON.stringify(authenticatedUser))
     } catch (error) {
-      console.error('Unable to save expenses', error)
-      return false
+      console.error('Unable to save authenticated user', error)
+      throw new Error('Не удалось сохранить авторизацию в браузере')
     }
   }
 
-  const handleLogin = ({ login, password }) => {
-    if (!login.trim() || !password) {
+  const handleLogin = async ({ login: username, password }) => {
+    if (!username.trim() || !password) {
       setAuthError('Заполните все поля')
       return
     }
-
-    let savedUser = null
+    setAuthLoading(true)
+    setAuthError('')
     try {
-      savedUser = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')
-    } catch {
-      setAuthError('Не удалось прочитать сохраненные данные')
-      return
-    }
-    const activeUser = savedUser || DEMO_USER
-
-    if (login.trim() === activeUser.login && password === activeUser.password) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(activeUser))
-      localStorage.setItem(SESSION_KEY, 'active')
-      setExpenses(getInitialExpenses(activeUser))
-      setUser(activeUser)
-      setAuthError('')
+      const authenticatedUser = await login({ login: username.trim(), password })
+      saveUser(authenticatedUser)
+      setExpensesLoading(true)
+      setExpensesError('')
+      setUser(authenticatedUser)
+      setExpenses([])
       setView('expenses')
-      return
+    } catch (error) {
+      setAuthError(error instanceof ApiError ? error.message : error.message || 'Не удалось войти')
+    } finally {
+      setAuthLoading(false)
     }
-
-    setAuthError('Неверный логин или пароль')
   }
 
-  const handleRegister = ({ name, email, password }) => {
-    if (!name.trim() || !email.trim() || !password.trim()) {
+  const handleRegister = async ({ name, email, password }) => {
+    const trimmedName = name.trim()
+    const username = trimmedName.toLowerCase().replace(/\s+/g, '')
+    if (!trimmedName || !email.trim() || !password.trim()) {
       setAuthError('Заполните все поля')
       return
     }
-
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setAuthError('Введите корректный адрес эл. почты')
       return
     }
-
-    if (password.length < 6) {
-      setAuthError('Пароль должен содержать не менее 6 символов')
+    if (trimmedName.length < 3 || username.length < 3 || password.length < 3) {
+      setAuthError('Имя, логин и пароль должны содержать не менее 3 символов')
       return
     }
 
-    const newUser = {
-      name: name.trim(),
-      login: name.trim().toLowerCase().replace(/\s+/g, ''),
-      email: email.trim(),
-      password,
-    }
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(newUser))
-    localStorage.setItem(SESSION_KEY, 'active')
-    setExpenses([])
-    setUser(newUser)
+    setAuthLoading(true)
     setAuthError('')
-    setView('expenses')
+    try {
+      const authenticatedUser = await register({
+        login: username,
+        name: trimmedName,
+        password,
+      })
+      saveUser(authenticatedUser)
+      setExpensesLoading(true)
+      setExpensesError('')
+      setUser(authenticatedUser)
+      setExpenses([])
+      setView('expenses')
+    } catch (error) {
+      setAuthError(error instanceof ApiError ? error.message : error.message || 'Не удалось зарегистрироваться')
+    } finally {
+      setAuthLoading(false)
+    }
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem(SESSION_KEY)
+  const handleLogout = useCallback(() => {
+    try {
+      localStorage.removeItem(USER_KEY)
+    } catch (error) {
+      console.error('Unable to clear saved user', error)
+    }
     setExpenses([])
     setUser(null)
     setAuthError('')
+    setExpensesError('')
     setView('login')
+  }, [])
+
+  const handleSessionExpired = useCallback(() => {
+    handleLogout()
+    setAuthError('Сессия завершилась. Войдите снова.')
+  }, [handleLogout])
+
+  const loadExpenses = async () => {
+    if (!user?.token) return
+    try {
+      setExpenses(await getTransactions(user.token))
+      setExpensesError('')
+    } catch (error) {
+      setExpensesError(error.message || 'Не удалось загрузить расходы')
+      if (error.status === 401) handleSessionExpired()
+    } finally {
+      setExpensesLoading(false)
+    }
   }
 
-  if (view === 'expenses' && user) {
+  const retryExpenses = () => {
+    setExpensesLoading(true)
+    setExpensesError('')
+    loadExpenses()
+  }
+
+  useEffect(() => {
+    if (!user?.token) return undefined
+    let active = true
+    getTransactions(user.token)
+      .then(transactions => {
+        if (!active) return
+        setExpenses(transactions)
+        setExpensesError('')
+      })
+      .catch(error => {
+        if (!active) return
+        setExpensesError(error.message || 'Не удалось загрузить расходы')
+        if (error.status === 401) handleSessionExpired()
+      })
+      .finally(() => {
+        if (active) setExpensesLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [user?.token, handleSessionExpired])
+
+  const handleCreateExpense = async expense => {
+    if (!user?.token) throw new Error('Необходимо войти в аккаунт')
+    setMutationLoading(true)
+    try {
+      const nextExpenses = await createTransaction(user.token, {
+        description: expense.description,
+        sum: expense.amount,
+        category: categoryByLabel[expense.category],
+        date: expense.date,
+      })
+      setExpenses(nextExpenses)
+    } catch (error) {
+      if (error.status === 401) handleSessionExpired()
+      throw error
+    } finally {
+      setMutationLoading(false)
+    }
+  }
+
+  const handleDeleteExpense = async id => {
+    if (!user?.token) throw new Error('Необходимо войти в аккаунт')
+    setMutationLoading(true)
+    try {
+      setExpenses(await deleteTransaction(user.token, id))
+    } catch (error) {
+      if (error.status === 401) handleSessionExpired()
+      throw error
+    } finally {
+      setMutationLoading(false)
+    }
+  }
+
+  if (user && view === 'expenses') {
     return (
       <ExpensesPage
         expenses={expenses}
-        onExpensesChange={handleExpensesChange}
+        loading={expensesLoading}
+        loadError={expensesError}
+        mutationLoading={mutationLoading}
+        onCreateExpense={handleCreateExpense}
+        onDeleteExpense={handleDeleteExpense}
+        onRetry={retryExpenses}
         onLogout={handleLogout}
         onOpenAnalysis={() => setView('analysis')}
       />
     )
   }
 
-  if (view === 'analysis' && user) {
+  if (user && view === 'analysis') {
     return (
       <AnalysisPage
         expenses={expenses}
+        token={user.token}
         onLogout={handleLogout}
+        onUnauthorized={handleSessionExpired}
         onOpenExpenses={() => setView('expenses')}
       />
     )
@@ -155,6 +230,7 @@ function App() {
   if (view === 'register') {
     return (
       <RegistrationPage
+        loading={authLoading}
         onSwitchToLogin={() => {
           setView('login')
           setAuthError('')
@@ -167,6 +243,7 @@ function App() {
 
   return (
     <AuthPage
+      loading={authLoading}
       onSwitchToRegister={() => {
         setView('register')
         setAuthError('')

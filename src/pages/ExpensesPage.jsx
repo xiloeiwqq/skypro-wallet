@@ -1,40 +1,56 @@
 import { useState } from 'react'
 import { categoryOptions, formatCurrency, formatDate } from '../data.jsx'
 
-const ExpensesPage = ({ expenses, onExpensesChange, onLogout, onOpenAnalysis }) => {
+const ExpensesPage = ({
+  expenses,
+  loading,
+  loadError,
+  mutationLoading,
+  onCreateExpense,
+  onDeleteExpense,
+  onRetry,
+  onLogout,
+  onOpenAnalysis,
+}) => {
   const [description, setDescription] = useState('')
   const [category, setCategory] = useState(categoryOptions[0].label)
   const [date, setDate] = useState('')
   const [amount, setAmount] = useState('')
   const [formError, setFormError] = useState('')
 
-  const handleSubmit = event => {
+  const handleSubmit = async event => {
     event.preventDefault()
     const numericAmount = Number(amount)
 
-    if (!description.trim() || !category || !date || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-      setFormError('Заполните все поля и укажите сумму больше нуля')
+    if (description.trim().length < 4 || !category || !date || !Number.isInteger(numericAmount) || numericAmount <= 0) {
+      setFormError('Описание должно содержать от 4 символов, а сумма — быть целым положительным числом')
       return
     }
 
-    const nextExpenses = [{
-      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      description: description.trim(),
-      category,
-      date,
-      amount: numericAmount,
-    }, ...expenses]
-    const saved = onExpensesChange(nextExpenses)
-    setDescription('')
-    setCategory(categoryOptions[0].label)
-    setDate('')
-    setAmount('')
-    setFormError(saved ? '' : 'Расход добавлен, но не сохранен в браузере')
+    try {
+      await onCreateExpense({
+        description: description.trim(),
+        category,
+        date,
+        amount: numericAmount,
+      })
+      setDescription('')
+      setCategory(categoryOptions[0].label)
+      setDate('')
+      setAmount('')
+      setFormError('')
+    } catch (error) {
+      setFormError(error.message || 'Не удалось добавить расход')
+    }
   }
 
-  const handleDelete = id => {
-    const saved = onExpensesChange(expenses.filter(expense => expense.id !== id))
-    setFormError(saved ? '' : 'Расход удален, но изменения не сохранены в браузере')
+  const handleDelete = async id => {
+    setFormError('')
+    try {
+      await onDeleteExpense(id)
+    } catch (error) {
+      setFormError(error.message || 'Не удалось удалить расход')
+    }
   }
 
   return (
@@ -48,7 +64,7 @@ const ExpensesPage = ({ expenses, onExpensesChange, onLogout, onOpenAnalysis }) 
           <button type="button" className="nav-link active" aria-current="page">
             Мои расходы
           </button>
-          <button type="button" className="nav-link" onClick={onOpenAnalysis}>
+          <button type="button" className="nav-link" onClick={onOpenAnalysis} disabled={loading || Boolean(loadError)}>
             Анализ расходов
           </button>
         </nav>
@@ -77,7 +93,7 @@ const ExpensesPage = ({ expenses, onExpensesChange, onLogout, onOpenAnalysis }) 
                   </tr>
                 </thead>
                 <tbody>
-                  {expenses.map(expense => (
+                  {!loading && !loadError && expenses.map(expense => (
                     <tr key={expense.id}>
                       <td>{expense.description}</td>
                       <td>{expense.category}</td>
@@ -88,6 +104,7 @@ const ExpensesPage = ({ expenses, onExpensesChange, onLogout, onOpenAnalysis }) 
                           type="button"
                           className="delete-button"
                           aria-label={`Удалить расход «${expense.description}»`}
+                          disabled={mutationLoading}
                           onClick={() => handleDelete(expense.id)}
                         >
                           <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -99,7 +116,16 @@ const ExpensesPage = ({ expenses, onExpensesChange, onLogout, onOpenAnalysis }) 
                   ))}
                 </tbody>
               </table>
-              {expenses.length === 0 && <p className="empty-state">Пока нет расходов</p>}
+              {loading && <p className="empty-state">Загружаем расходы…</p>}
+              {loadError && (
+                <div className="empty-state" role="alert">
+                  <p>{loadError}</p>
+                  <button type="button" className="retry-button" onClick={onRetry}>Повторить</button>
+                </div>
+              )}
+              {!loading && !loadError && expenses.length === 0 && (
+                <p className="empty-state">Пока нет расходов</p>
+              )}
             </div>
           </section>
 
@@ -152,8 +178,8 @@ const ExpensesPage = ({ expenses, onExpensesChange, onLogout, onOpenAnalysis }) 
                 <span>Сумма</span>
                 <input
                   type="number"
-                  min="0.01"
-                  step="0.01"
+                  min="1"
+                  step="1"
                   value={amount}
                   onChange={event => setAmount(event.target.value)}
                   placeholder="Введите сумму"
@@ -162,8 +188,8 @@ const ExpensesPage = ({ expenses, onExpensesChange, onLogout, onOpenAnalysis }) 
               </label>
 
               {formError && <p className="form-error" role="alert">{formError}</p>}
-              <button type="submit" className="primary-button expense-button">
-                Добавить новый расход
+              <button type="submit" className="primary-button expense-button" disabled={mutationLoading}>
+                {mutationLoading ? 'Сохраняем…' : 'Добавить новый расход'}
               </button>
             </form>
           </aside>
